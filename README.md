@@ -66,3 +66,11 @@ Para respaldar toda la información, detenga la aplicación y copie:
 - `apps/api/data/uploads/people`
 
 El primer elemento conserva personas, escenarios, versiones y asignaciones; el segundo contiene las fotografías.
+
+## Rendimiento en un servidor
+
+La base SQLite usa WAL con `synchronous = NORMAL` y `busy_timeout`, de modo que cada asignación evita un `fsync` completo; en el frontend, al asignar o desasignar la lista de versiones se refresca en segundo plano para no encadenar dos peticiones. En la exportación PDF, cada fotografía se incrusta una sola vez y se reutiliza en el mapa y en la tabla.
+
+Para que se sienta ágil publicado en internet conviene, además: ejecutar el API compilado (`node dist/main.js`, no el servidor de desarrollo), poner un proxy con gzip/brotli enfrente (por ejemplo Nginx), servir las fotografías con caché, y subir imágenes de tamaño razonable (las fotos muy grandes hacen más lenta la generación del PDF). Si el proveedor apaga el servicio por inactividad, la primera visita pagará el arranque en frío.
+
+Al generar el PDF, las fotografías se normalizan antes de incrustarse: los JPEG se usan tal cual y los PNG se aplanan sobre fondo blanco para quitarles la transparencia (canal alfa). Esto es importante porque pdfkit procesa los PNG con canal alfa por una ruta asíncrona que puede quedarse bloqueada en servidores con poca CPU; al eliminar la transparencia usa su ruta rápida y síncrona. Las imágenes no reconocidas o enormes (más de ~4 millones de píxeles) se omiten y la persona aparece con sus iniciales. Aun así, lo ideal es subir fotografías de tamaño moderado.

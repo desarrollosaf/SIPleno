@@ -4,6 +4,7 @@ import { basename, resolve } from 'node:path';
 import PDFDocument from 'pdfkit';
 import { ArrangementsService } from '../arrangements/arrangements.service.js';
 import { PeopleService } from '../people/people.service.js';
+import { normalizePhotoForPdf } from './image-normalize.js';
 import type {
   SeatGroupDefinition,
   SeatLayoutDefinition,
@@ -31,6 +32,12 @@ interface ExportArrangement {
 interface SeatRow {
   seatId: string;
   occupant: ExportAssignment | null;
+}
+
+/** Imagen ya abierta por pdfkit (openImage no está tipado en @types/pdfkit). */
+interface PdfImage {
+  width: number;
+  height: number;
 }
 
 const WINE = '#8F1647';
@@ -76,6 +83,22 @@ export class PdfExportService {
     const done = new Promise<Buffer>((resolveDone) => {
       doc.on('end', () => resolveDone(Buffer.concat(chunks)));
     });
+
+    // Cada fotografía se normaliza (JPEG tal cual; PNG aplanado sin alfa) y se
+    // incrusta UNA sola vez, reutilizándose en el mapa y en la tabla. Aplanar el
+    // canal alfa evita la ruta asíncrona de pdfkit que puede bloquear la
+    // exportación en servidores con poca CPU.
+    const opener = doc as unknown as { openImage(source: Buffer): PdfImage };
+    const images = new Map<string, PdfImage>();
+    for (const [personId, data] of photos) {
+      const normalized = normalizePhotoForPdf(data);
+      if (!normalized) continue;
+      try {
+        images.set(personId, opener.openImage(normalized));
+      } catch {
+        // Si una imagen no puede abrirse, simplemente no se dibuja.
+      }
+    }
 
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
@@ -203,7 +226,7 @@ export class PdfExportService {
         });
 
       // Fotografía a la derecha (o a la izquierda si no cabe por el borde)
-      const photo = photos.get(occupant.personId);
+      const photo = images.get(occupant.personId);
       if (photo) {
         let px = box.x + seatSize + photoGap;
         if (px + photoSize > mapRight + 4) {
@@ -237,7 +260,7 @@ export class PdfExportService {
     // --- Listado (página nueva): TODOS los asientos, en el orden A, AA, B, BB… ---
     doc.addPage();
     const seatRows = orderedSeats(definition, bySeat);
-    this.drawList(doc, arrangement, seatRows, assignments.length, totalSeats, photos);
+    this.drawList(doc, arrangement, seatRows, assignments.length, totalSeats, images);
 
     doc.end();
     const buffer = await done;
@@ -253,7 +276,7 @@ export class PdfExportService {
     seatRows: SeatRow[],
     assignedCount: number,
     totalSeats: number,
-    photos: Map<string, Buffer>,
+    images: Map<string, PdfImage>,
   ): void {
     const pageLeft = doc.page.margins.left;
     const pageRight = doc.page.width - doc.page.margins.right;
@@ -348,7 +371,7 @@ export class PdfExportService {
         const photoColWidth = columns[0].width * contentWidth;
         const ax = colX[0] + (photoColWidth - avatar) / 2;
         const ay = y + (rowHeight - avatar) / 2;
-        const photo = photos.get(occupant.personId);
+        const photo = images.get(occupant.personId);
         if (photo) {
           doc.save().roundedRect(ax - 0.6, ay - 0.6, avatar + 1.2, avatar + 1.2, 5).fill(WHITE).restore();
           drawImageCover(doc, photo, ax, ay, avatar, avatar, 4.5);
@@ -425,7 +448,7 @@ export class PdfExportService {
 
 function drawImageCover(
   doc: PDFKit.PDFDocument,
-  buffer: Buffer,
+  image: PdfImage | Buffer,
   x: number,
   y: number,
   width: number,
@@ -439,7 +462,11 @@ function drawImageCover(
     doc.rect(x, y, width, height).clip();
   }
   try {
-    doc.image(buffer, x, y, { cover: [width, height], align: 'center', valign: 'center' });
+    doc.image(image as unknown as Buffer, x, y, {
+      cover: [width, height],
+      align: 'center',
+      valign: 'center',
+    });
   } catch {
     // Si la imagen no puede incrustarse, se omite sin interrumpir el documento.
   }

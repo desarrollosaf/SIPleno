@@ -27,6 +27,11 @@ export class DatabaseService implements OnModuleDestroy {
     this.database = new DatabaseSync(databasePath);
     this.database.exec('PRAGMA foreign_keys = ON;');
     this.database.exec('PRAGMA journal_mode = WAL;');
+    // synchronous=NORMAL es seguro con WAL y evita un fsync por transacción,
+    // lo que acelera notablemente cada asignación en discos de servidor.
+    this.database.exec('PRAGMA synchronous = NORMAL;');
+    // Espera hasta 5 s si la base está bloqueada, en vez de fallar de inmediato.
+    this.database.exec('PRAGMA busy_timeout = 5000;');
     this.migrate();
     this.seed();
     this.database.exec('PRAGMA optimize;');

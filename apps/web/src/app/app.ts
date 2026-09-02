@@ -194,7 +194,9 @@ export class App implements OnInit {
         this.api.assignPerson(arrangementId, seatId, personId),
       );
       this.arrangement.set(updated);
-      await this.refreshArrangementList();
+      // La lista de versiones (fechas y conteos) se refresca en segundo plano
+      // para no bloquear la asignación con una segunda petición.
+      void this.refreshArrangementList();
       this.notify(`Asignación guardada en ${seatId}.`, 'success');
       this.selectedPersonId.set(null);
     } catch (error) {
@@ -216,7 +218,7 @@ export class App implements OnInit {
       );
       this.arrangement.set(updated);
       this.selectedSeatId.set(null);
-      await this.refreshArrangementList();
+      void this.refreshArrangementList();
       this.notify(`El asiento ${seatId} quedó disponible.`, 'success');
     } catch (error) {
       this.showError(error, 'No fue posible desasignar el asiento.');
