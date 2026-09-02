@@ -1,0 +1,47 @@
+services:
+  install:
+    image: node:24-alpine
+    container_name: pleno-install
+    working_dir: /app
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    command: npm install
+
+  api:
+    image: node:24-alpine
+    container_name: pleno-api
+    working_dir: /app
+    depends_on:
+      install:
+        condition: service_completed_successfully
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      HOST: 0.0.0.0
+      CHOKIDAR_USEPOLLING: "true"
+    command: npm run start:dev --workspace @asientos/api
+
+  web:
+    image: node:24-alpine
+    container_name: pleno-web
+    working_dir: /app
+    depends_on:
+      install:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+    ports:
+      - "4200:4200"
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    command: npm run start --workspace @asientos/web -- --host 0.0.0.0 --port 4200 --poll=1000
+
+volumes:
+  node_modules:

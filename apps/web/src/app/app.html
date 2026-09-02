@@ -1,0 +1,508 @@
+@if (loading()) {
+  <div class="loading-screen" role="status">
+    <div class="loading-mark"></div>
+    <strong>Preparando el acomodo de asientos</strong>
+    <span>Abriendo la base de datos local…</span>
+  </div>
+} @else {
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <img src="assets/logos-62.svg" alt="LXII Legislatura del Estado de México" />
+        <span class="brand-divider" aria-hidden="true"></span>
+        <div>
+          <h1>Asignación de asientos</h1>
+          <p>Acomodos privados y versiones locales</p>
+        </div>
+      </div>
+      <span class="local-badge"><i></i> Datos guardados localmente</span>
+    </header>
+
+    <div class="workspace">
+      <aside class="people-panel" aria-label="Personas disponibles">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">Directorio</span>
+            <h2>Personas</h2>
+          </div>
+          <div class="panel-heading-actions">
+            <button class="button primary compact" type="button" (click)="openCreatePerson()">
+              <span aria-hidden="true">＋</span> Nueva persona
+            </button>
+            <details class="more-menu">
+              <summary aria-label="Herramientas del directorio">•••</summary>
+              <div>
+                <button type="button" (click)="openImportDialog()">Importar desde CSV</button>
+                <button type="button" (click)="exportPeopleCsv()">Exportar a CSV</button>
+                <button type="button" class="danger-text" (click)="deleteAllPeople()">
+                  Borrar todos
+                </button>
+              </div>
+            </details>
+          </div>
+        </div>
+
+        <label class="search-field">
+          <span class="sr-only">Buscar persona</span>
+          <span aria-hidden="true">⌕</span>
+          <input
+            type="search"
+            placeholder="Buscar por nombre o cargo"
+            [ngModel]="searchTerm()"
+            (ngModelChange)="searchTerm.set($event)"
+          />
+        </label>
+
+        @if (selectedPerson(); as person) {
+          <div class="selection-callout">
+            <div class="avatar">
+              @if (photoUrl(person); as photo) {
+                <img [src]="photo" [alt]="'Foto de ' + person.fullName" />
+              } @else {
+                {{ initials(person.fullName) }}
+              }
+            </div>
+            <div>
+              <small>Persona seleccionada</small>
+              <strong>{{ person.fullName }}</strong>
+              <span>Ahora elija un asiento disponible.</span>
+            </div>
+            <button type="button" class="icon-button" aria-label="Cancelar selección" (click)="selectedPersonId.set(null)">×</button>
+          </div>
+        } @else {
+          <p class="instruction">Seleccione una persona y después haga clic en su asiento.</p>
+        }
+
+        <div class="people-list" role="list">
+          @for (person of filteredPeople(); track person.id) {
+            <div class="person-row" role="listitem" [class.selected]="selectedPersonId() === person.id">
+              <button class="person-main" type="button" (click)="selectPerson(person)">
+                <span class="avatar">
+                  @if (photoUrl(person); as photo) {
+                    <img [src]="photo" [alt]="'Foto de ' + person.fullName" />
+                  } @else {
+                    {{ initials(person.fullName) }}
+                  }
+                </span>
+                <span class="person-copy">
+                  <strong>{{ person.fullName }}</strong>
+                  <small>{{ person.position || person.organization || 'Sin cargo registrado' }}</small>
+                </span>
+              </button>
+              <button class="person-edit" type="button" [attr.aria-label]="'Editar a ' + person.fullName" (click)="openEditPerson(person)">•••</button>
+            </div>
+          } @empty {
+            <div class="empty-state">
+              <strong>Sin resultados</strong>
+              <span>Pruebe con otro nombre o agregue una persona.</span>
+            </div>
+          }
+        </div>
+
+        <div class="people-footer">
+          <span>{{ filteredPeople().length }} personas visibles</span>
+          <span>{{ arrangement()?.assignments?.length || 0 }} asignadas</span>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <section class="version-bar" aria-label="Versión del acomodo">
+          <div class="version-pickers">
+            <label class="version-select scenario-select">
+              <span>Tipo de escenario</span>
+              <select [value]="selectedLayoutId()" (change)="onScenarioChange($event)" [disabled]="busy()">
+                @for (layout of layouts(); track layout.id) {
+                  <option [value]="layout.id">{{ layout.name }} · {{ layout.seatCount }} lugares</option>
+                }
+              </select>
+            </label>
+            <label class="version-select">
+              <span>Versión del acomodo</span>
+              <select [value]="arrangement()?.id || ''" (change)="onArrangementChange($event)" [disabled]="busy()">
+                @for (version of versionsForScenario(); track version.id) {
+                  <option [value]="version.id">{{ version.name }} · {{ version.assignmentCount }}/{{ version.seatCount }}</option>
+                }
+              </select>
+            </label>
+          </div>
+          <div class="version-actions">
+            <button class="button secondary" type="button" (click)="historyOpen.set(true)" [disabled]="busy()">
+              Historial
+            </button>
+            <button class="button primary" type="button" (click)="openVersionDialog('duplicate')" [disabled]="!arrangement() || busy()">
+              Guardar como nueva versión
+            </button>
+            <button class="button secondary" type="button" (click)="openVersionDialog('new')" [disabled]="busy()">Nuevo acomodo vacío</button>
+            <details class="more-menu">
+              <summary aria-label="Más acciones">•••</summary>
+              <div>
+                <button type="button" (click)="openVersionDialog('edit')">Renombrar versión</button>
+                <button type="button" (click)="clearCurrentVersion()">Vaciar asientos</button>
+                <button type="button" class="danger-text" (click)="deleteCurrentVersion()">Eliminar versión</button>
+              </div>
+            </details>
+          </div>
+        </section>
+
+        @if (arrangement(); as current) {
+          <section class="summary-strip">
+            <div>
+              <span class="stat-number">{{ current.assignments.length }}</span>
+              <span class="stat-label">Asignados</span>
+            </div>
+            <div>
+              <span class="stat-number">{{ availableSeats() }}</span>
+              <span class="stat-label">Disponibles</span>
+            </div>
+            <div class="summary-context">
+              <strong>{{ current.definition.name }}</strong>
+              <span>{{ current.definition.description }}</span>
+            </div>
+            @if (busy()) {
+              <span class="saving-indicator"><i></i> Guardando…</span>
+            }
+          </section>
+
+          <section class="map-card">
+            <header class="map-toolbar">
+              <div>
+                <span class="eyebrow">Mapa de lugares</span>
+                <h2>{{ current.name }}</h2>
+              </div>
+              <div class="map-tools">
+                <details class="export-menu">
+                  <summary class="button secondary">Exportar</summary>
+                  <div>
+                    <button type="button" (click)="downloadExport('pdf')">Mapa + listado (PDF)</button>
+                    <button type="button" (click)="downloadExport('word')">Listado de asientos (Word)</button>
+                    <button type="button" (click)="downloadExport('labels')" [disabled]="current.assignments.length === 0">
+                      Etiquetas S-14075BLU (Word)
+                    </button>
+                  </div>
+                </details>
+                <div class="zoom-controls" aria-label="Control de zoom">
+                  <button type="button" aria-label="Alejar mapa" (click)="zoomOut()">−</button>
+                  <span>{{ (zoom() * 100).toFixed(0) }}%</span>
+                  <button type="button" aria-label="Acercar mapa" (click)="zoomIn()">＋</button>
+                </div>
+              </div>
+            </header>
+
+            <div class="map-scroll">
+              <div
+                class="map-sizer"
+                [style.width.px]="current.definition.width * zoom()"
+                [style.height.px]="current.definition.height * zoom()"
+              >
+                <div
+                  class="seat-stage"
+                  [style.width.px]="current.definition.width"
+                  [style.height.px]="current.definition.height"
+                  [style.transform]="'scale(' + zoom() + ')'"
+                >
+                  <img
+                    class="venue-background"
+                    [src]="current.definition.background.asset"
+                    [alt]="current.definition.background.alt"
+                    [style.left.px]="current.definition.background.x"
+                    [style.top.px]="current.definition.background.y"
+                    [style.width.px]="current.definition.background.width"
+                    [style.height.px]="current.definition.background.height"
+                  />
+
+                  @for (group of current.definition.groups; track group.id) {
+                    <div
+                      class="seat-group"
+                      [attr.aria-label]="'Sección ' + group.label"
+                      [style.left.px]="group.x"
+                      [style.top.px]="group.y"
+                      [style.grid-template-columns]="'repeat(' + group.columns + ', ' + current.definition.seatSize + 'px)'"
+                      [style.gap.px]="current.definition.gap"
+                    >
+                      @for (seatId of seatsForGroup(group); track seatId) {
+                        @let assignment = assignmentBySeat().get(seatId);
+                        <button
+                          type="button"
+                          class="seat"
+                          [class.occupied]="!!assignment"
+                          [class.focused]="selectedSeatId() === seatId"
+                          [class.assignment-target]="!!selectedPerson() && !assignment"
+                          [style.width.px]="current.definition.seatSize"
+                          [style.height.px]="current.definition.seatSize"
+                          [attr.aria-label]="assignment ? seatId + ', asignado a ' + assignment.person.fullName : seatId + ', disponible'"
+                          [attr.title]="assignment ? seatId + ' · ' + assignment.person.fullName : seatId + ' · Disponible'"
+                          (click)="handleSeat(seatId)"
+                        >
+                          <img [src]="assignment ? 'assets/asiento-asignado.png' : 'assets/asiento-disponible.png'" alt="" />
+                          <span>{{ assignment ? initials(assignment.person.fullName) : seatId }}</span>
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            </div>
+
+            <footer class="map-footer">
+              <div class="legend" aria-label="Leyenda">
+                <span><i class="dot available"></i> Disponible</span>
+                <span><i class="dot occupied"></i> Asignado</span>
+                <span><i class="dot selected"></i> Seleccionado</span>
+              </div>
+
+              @if (selectedSeatId(); as seatId) {
+                <div class="seat-inspector">
+                  <span class="inspector-seat">{{ seatId }}</span>
+                  @if (selectedSeatAssignment(); as assignment) {
+                    <div>
+                      <small>Asignado a</small>
+                      <strong>{{ assignment.person.fullName }}</strong>
+                      <span>{{ assignment.person.position || 'Sin cargo registrado' }}</span>
+                    </div>
+                    <button class="button danger" type="button" (click)="unassignSelectedSeat()" [disabled]="busy()">Desasignar</button>
+                  } @else {
+                    <div>
+                      <small>Asiento disponible</small>
+                      <strong>{{ selectedPerson() ? 'Listo para asignar' : 'Seleccione una persona' }}</strong>
+                      <span>{{ selectedPerson()?.fullName || 'Use el directorio de la izquierda.' }}</span>
+                    </div>
+                    @if (selectedPerson()) {
+                      <button class="button primary" type="button" (click)="handleSeat(seatId)" [disabled]="busy()">Asignar aquí</button>
+                    }
+                  }
+                </div>
+              } @else {
+                <p class="map-tip">Los cambios se guardan automáticamente en la versión actual.</p>
+              }
+            </footer>
+          </section>
+        } @else {
+          <div class="empty-workspace">
+            <strong>No hay una versión disponible</strong>
+            <button class="button primary" type="button" (click)="openVersionDialog('new')">Crear primer acomodo</button>
+          </div>
+        }
+      </main>
+    </div>
+  </div>
+}
+
+@if (personDialog(); as mode) {
+  <div class="modal-backdrop" (mousedown)="closeDialogs()">
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="person-dialog-title" (mousedown)="$event.stopPropagation()">
+      <header>
+        <div>
+          <span class="eyebrow">Directorio local</span>
+          <h2 id="person-dialog-title">{{ mode === 'create' ? 'Nueva persona' : 'Editar persona' }}</h2>
+        </div>
+        <button class="icon-button" type="button" aria-label="Cerrar" (click)="closeDialogs()">×</button>
+      </header>
+      <form (ngSubmit)="savePerson()">
+        <div
+          class="photo-field full"
+          [class.dragging]="photoDragging()"
+          (dragover)="onPhotoDragOver($event)"
+          (dragleave)="onPhotoDragLeave($event)"
+          (drop)="onPhotoDrop($event)"
+        >
+          <div class="photo-preview">
+            @if (personPhotoPreview; as photo) {
+              <img [src]="photo" alt="Vista previa de la fotografía" />
+            } @else {
+              <span>{{ initials(personForm.fullName || 'NP') }}</span>
+            }
+          </div>
+          <label>
+            <strong>Fotografía</strong>
+            <span>Arrastre una imagen aquí o selecciónela. JPG o PNG, máximo 5 MB. Se guarda únicamente en este equipo.</span>
+            <input type="file" accept="image/jpeg,image/png" (change)="onPersonPhotoSelected($event)" />
+          </label>
+          @if (photoDragging()) {
+            <div class="photo-drop-overlay" aria-hidden="true">Suelte la imagen para cargarla</div>
+          }
+        </div>
+        <label class="field full">
+          <span>Nombre completo *</span>
+          <input name="fullName" [(ngModel)]="personForm.fullName" maxlength="160" required autofocus />
+        </label>
+        <label class="field">
+          <span>Cargo o función</span>
+          <input name="position" [(ngModel)]="personForm.position" maxlength="180" />
+        </label>
+        <label class="field">
+          <span>Institución u organización</span>
+          <input name="organization" [(ngModel)]="personForm.organization" maxlength="180" />
+        </label>
+        <label class="field full">
+          <span>Correo electrónico (opcional)</span>
+          <input name="email" type="email" [(ngModel)]="personForm.email" maxlength="180" />
+        </label>
+        <label class="field full">
+          <span>Notas</span>
+          <textarea name="notes" [(ngModel)]="personForm.notes" rows="3" maxlength="600"></textarea>
+        </label>
+        <div class="modal-actions full">
+          @if (mode === 'edit') {
+            @let person = selectedPerson();
+            @if (person) {
+              <button class="button ghost danger-text" type="button" (click)="archivePerson(person)">Archivar persona</button>
+            }
+          }
+          <span class="action-spacer"></span>
+          <button class="button secondary" type="button" (click)="closeDialogs()">Cancelar</button>
+          <button class="button primary" type="submit" [disabled]="personForm.fullName.trim().length < 2 || busy()">Guardar</button>
+        </div>
+      </form>
+    </section>
+  </div>
+}
+
+@if (importOpen()) {
+  <div class="modal-backdrop" (mousedown)="closeDialogs()">
+    <section class="modal-card import-modal" role="dialog" aria-modal="true" aria-labelledby="import-dialog-title" (mousedown)="$event.stopPropagation()">
+      <header>
+        <div>
+          <span class="eyebrow">Directorio local</span>
+          <h2 id="import-dialog-title">Importar personas desde CSV</h2>
+        </div>
+        <button class="icon-button" type="button" aria-label="Cerrar" (click)="closeDialogs()">×</button>
+      </header>
+
+      <div class="import-body">
+        <p class="import-help">
+          Una persona por línea, separada por comas. Columnas admitidas:
+          <strong>Nombre completo, Cargo, Institución, Correo, Notas</strong>.
+          Sólo el nombre es obligatorio. Puede incluir una primera fila de encabezados;
+          se detecta automáticamente.
+        </p>
+
+        <label class="import-file">
+          <span>Seleccionar archivo .csv</span>
+          <input type="file" accept=".csv,text/csv,text/plain" (change)="onImportFileSelected($event)" />
+          @if (importFileName) {
+            <small>Archivo cargado: {{ importFileName }}</small>
+          }
+        </label>
+
+        <label class="field full">
+          <span>O pegue el contenido del CSV</span>
+          <textarea
+            name="importContent"
+            rows="7"
+            placeholder="Lic. Ana Ruiz,Directora de Comunicación,Secretaría de Cultura&#10;Dr. Luis Peña,Asesor,Congreso del Estado"
+            [(ngModel)]="importContent"
+          ></textarea>
+        </label>
+
+        @if (importResult(); as result) {
+          <div class="import-result" [class.has-errors]="result.skipped > 0">
+            <strong>{{ result.created }} agregada{{ result.created === 1 ? '' : 's' }}</strong>
+            <span>· {{ result.total }} fila{{ result.total === 1 ? '' : 's' }} leída{{ result.total === 1 ? '' : 's' }}</span>
+            @if (result.skipped > 0) {
+              <span>· {{ result.skipped }} omitida{{ result.skipped === 1 ? '' : 's' }}</span>
+            }
+            @if (result.errors.length) {
+              <ul>
+                @for (issue of result.errors; track issue) {
+                  <li>{{ issue }}</li>
+                }
+              </ul>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="modal-actions full">
+        <span class="action-spacer"></span>
+        <button class="button secondary" type="button" (click)="closeDialogs()">Cerrar</button>
+        <button class="button primary" type="button" (click)="submitImport()" [disabled]="!importContent.trim() || busy()">
+          Importar personas
+        </button>
+      </div>
+    </section>
+  </div>
+}
+
+@if (historyOpen()) {
+  <div class="modal-backdrop" (mousedown)="closeDialogs()">
+    <section class="modal-card history-modal" role="dialog" aria-modal="true" aria-labelledby="history-dialog-title" (mousedown)="$event.stopPropagation()">
+      <header>
+        <div>
+          <span class="eyebrow">Versiones anteriores</span>
+          <h2 id="history-dialog-title">Historial de {{ arrangement()?.layoutName }}</h2>
+        </div>
+        <button class="icon-button" type="button" aria-label="Cerrar" (click)="closeDialogs()">×</button>
+      </header>
+      <div class="history-list">
+        @for (version of versionsForScenario(); track version.id) {
+          <button
+            type="button"
+            class="history-item"
+            [class.current]="version.id === arrangement()?.id"
+            (click)="loadArrangement(version.id); historyOpen.set(false)"
+          >
+            <span class="history-status">{{ version.id === arrangement()?.id ? 'Actual' : 'Abrir' }}</span>
+            <strong>{{ version.name }}</strong>
+            <small>{{ version.assignmentCount }} asignados · {{ formatDate(version.updatedAt) }}</small>
+            <span>{{ sourceVersionName(version.sourceArrangementId) }}</span>
+          </button>
+        }
+      </div>
+      <footer class="history-footer">
+        Cada versión conserva sus propias asignaciones. Abrir una versión anterior no modifica las demás.
+      </footer>
+    </section>
+  </div>
+}
+
+@if (versionDialog(); as mode) {
+  <div class="modal-backdrop" (mousedown)="closeDialogs()">
+    <section class="modal-card version-modal" role="dialog" aria-modal="true" aria-labelledby="version-dialog-title" (mousedown)="$event.stopPropagation()">
+      <header>
+        <div>
+          <span class="eyebrow">Historial de acomodos</span>
+          <h2 id="version-dialog-title">
+            {{ mode === 'duplicate' ? 'Guardar como nueva versión' : mode === 'edit' ? 'Editar versión' : 'Nuevo acomodo vacío' }}
+          </h2>
+        </div>
+        <button class="icon-button" type="button" aria-label="Cerrar" (click)="closeDialogs()">×</button>
+      </header>
+      <form (ngSubmit)="saveVersion()">
+        <label class="field full">
+          <span>Nombre de la versión *</span>
+          <input name="versionName" [(ngModel)]="versionForm.name" maxlength="120" required autofocus />
+        </label>
+        @if (mode === 'new') {
+          <label class="field full">
+            <span>Plantilla de asientos</span>
+            <select name="layoutId" [(ngModel)]="versionForm.layoutId" required>
+              @for (layout of layouts(); track layout.id) {
+                <option [value]="layout.id">{{ layout.name }} · {{ layout.seatCount }} lugares</option>
+              }
+            </select>
+          </label>
+        } @else if (mode === 'duplicate') {
+          <div class="copy-note full">
+            Se copiarán las {{ arrangement()?.assignments?.length || 0 }} asignaciones de la versión actual. La copia podrá modificarse sin afectar el original.
+          </div>
+        }
+        <label class="field full">
+          <span>Descripción o nota</span>
+          <textarea name="versionDescription" [(ngModel)]="versionForm.description" rows="3" maxlength="400"></textarea>
+        </label>
+        <div class="modal-actions full">
+          <span class="action-spacer"></span>
+          <button class="button secondary" type="button" (click)="closeDialogs()">Cancelar</button>
+          <button class="button primary" type="submit" [disabled]="!versionForm.name.trim() || !versionForm.layoutId || busy()">Guardar</button>
+        </div>
+      </form>
+    </section>
+  </div>
+}
+
+@if (toast(); as message) {
+  <div class="toast" [class]="'toast ' + message.kind" role="status">
+    <span>{{ message.kind === 'success' ? '✓' : message.kind === 'error' ? '!' : 'i' }}</span>
+    {{ message.message }}
+  </div>
+}

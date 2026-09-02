@@ -1,0 +1,20 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_PATH: pleno_eventos
+    container_name: pleno-app
+    ports:
+      - "8099:3000"
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      BASE_PATH: pleno_eventos
+    volumes:
+      - pleno_data:/app/apps/api/data
+    restart: always
+
+volumes:
+  pleno_data:

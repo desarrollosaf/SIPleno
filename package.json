@@ -1,0 +1,22 @@
+{
+  "name": "sistema-local-asignacion-asientos",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/web",
+    "apps/api"
+  ],
+  "engines": {
+    "node": ">=22.22.3"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n API,WEB -c magenta,cyan \"npm run start:dev --workspace @asientos/api\" \"npm run start --workspace @asientos/web\"",
+    "build": "npm run build --workspace @asientos/api && npm run build --workspace @asientos/web",
+    "start": "npm run start:prod --workspace @asientos/api",
+    "test": "npm run test --workspace @asientos/api && npm run test --workspace @asientos/web",
+    "test:e2e": "npm run test:e2e --workspace @asientos/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
